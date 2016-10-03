@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Threading;
+using NSpeedTest.Client.Jitbit.Utils;
 using NSpeedTest.Models;
 
 namespace NSpeedTest.Client
@@ -9,22 +12,55 @@ namespace NSpeedTest.Client
     {
         private static SpeedTestClient client;
         private static Settings settings;
-        private const string DefaultCountry = "Belarus";
+        private const string DefaultCountry = "Australia";
+        private static bool IsAbort = false;
+        private static double SleepTimer = 1;
 
         static void Main()
         {
-            Console.WriteLine("Getting speedtest.net settings and server list...");
+            //Console.WriteLine("Getting speedtest.net settings and server list...");
+        
+            //Console.WriteLine("Testing speed...");
+            var csvExport = new CsvExport();
+
+            string sleepTimerIn = string.Empty;
+            do
+            {
+                Console.WriteLine("1) Enter how many minutes before next check ");
+                sleepTimerIn = Console.ReadLine();
+            } while (!double.TryParse(sleepTimerIn, out SleepTimer));
+
+            var sleepAmt = TimeSpan.FromMinutes(SleepTimer).TotalMilliseconds;
+
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("CTRL + C will exit the app back to console.");
+            Console.ResetColor();
+
             client = new SpeedTestClient();
             settings = client.GetSettings();
-            
             var servers = SelectServers();
-            var bestServer = SelectBestServer(servers);
-            
-            Console.WriteLine("Testing speed...");
-            var downloadSpeed = client.TestDownloadSpeed(bestServer, settings.Download.ThreadsPerUrl);
-            PrintSpeed("Download", downloadSpeed);
-            var uploadSpeed = client.TestUploadSpeed(bestServer, settings.Upload.ThreadsPerUrl);
-            PrintSpeed("Upload", uploadSpeed);
+
+            while (!IsAbort)
+            {
+                var bestServer = SelectBestServer(servers);
+                var downloadSpeed = client.TestDownloadSpeed(bestServer, settings.Download.ThreadsPerUrl);
+                var uploadSpeed = client.TestUploadSpeed(bestServer, settings.Upload.ThreadsPerUrl);
+                PrintSpeed("Download", downloadSpeed);
+                PrintSpeed("Upload", uploadSpeed);
+
+                csvExport.AddRow();
+                csvExport["Date"] = DateTime.UtcNow;
+                csvExport["UP"] = PrintSpeed(uploadSpeed);
+                csvExport["DOWN"] = PrintSpeed(downloadSpeed);
+                csvExport["UPRaw"] = uploadSpeed;
+                csvExport["DOWNRaw"] = downloadSpeed;
+                csvExport["Server"] = bestServer.Name;
+                csvExport["Host"] = bestServer.Host;
+                csvExport["Latency"] = bestServer.Latency;
+                csvExport["Distance"] = bestServer.Distance;
+                csvExport.ExportToFile("results.csv");
+                Thread.Sleep((int) sleepAmt);
+            }
 
             Console.WriteLine("Press a key to exit.");
             Console.ReadKey();
@@ -69,6 +105,18 @@ namespace NSpeedTest.Client
             else
             {
                 Console.WriteLine("{0} speed: {1} Kbps", type, Math.Round(speed, 2));
+            }
+        }
+
+        private static string PrintSpeed(double speed)
+        {
+            if (speed > 1024)
+            {
+                return string.Format("{0} Mbps", Math.Round(speed / 1024, 2));
+            }
+            else
+            {
+                return string.Format("{0} Kbps", Math.Round(speed, 2));
             }
         }
     }
